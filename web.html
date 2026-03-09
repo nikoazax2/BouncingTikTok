@@ -23,6 +23,24 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
   overflow-y:auto;padding:16px 14px;
   scrollbar-width:thin;scrollbar-color:#333 transparent;
 }
+
+.mobile-toggle{display:none;position:fixed;bottom:12px;right:12px;z-index:50;
+  width:44px;height:44px;border-radius:50%;background:var(--accent);border:none;
+  color:#fff;font-size:20px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.4);
+}
+
+@media(max-width:768px){
+  .app{grid-template-columns:1fr;grid-template-rows:1fr 40px}
+  .sidebar{
+    position:fixed;inset:0;z-index:40;grid-row:auto;
+    border-right:none;padding:16px 14px 80px;
+    transform:translateX(-100%);transition:transform .25s ease;
+  }
+  .sidebar.open{transform:translateX(0)}
+  .preview{grid-column:1;grid-row:1}
+  .status{grid-column:1}
+  .mobile-toggle{display:flex;align-items:center;justify-content:center}
+}
 .sidebar::-webkit-scrollbar{width:4px}
 .sidebar::-webkit-scrollbar-thumb{background:#333;border-radius:2px}
 
@@ -230,6 +248,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:3px}
     <div class="live"><span class="dot"></span><span id="statusText">En cours</span></div>
     <div id="stats">Image 0 | 0 rebonds | 0 fps</div>
   </footer>
+  <button class="mobile-toggle" id="mobileToggle" onclick="document.querySelector('.sidebar').classList.toggle('open');this.textContent=document.querySelector('.sidebar').classList.contains('open')?'\u2715':'\u2699'">&#9881;</button>
 </div>
 
 <div class="loading" id="loading">
