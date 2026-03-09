@@ -748,13 +748,15 @@ async function doExport(){
       var restoreAudio=()=>Object.defineProperty(audioCtx,'destination',{get:()=>realDest,configurable:true});
     }
     recorder.start();
-    // Render frames
+    // Render frames at real-time speed for correct capture
     const frameDelay=1000/fps;
     for(let f=0;f<totalFrames;f++){
+      const t0=performance.now();
       sim.step();
       sim.render(octx,1);
-      await new Promise(r=>setTimeout(r,frameDelay>16?1:1));
-      if(f%60===0)document.querySelector('.loading-box p').textContent=`Rendu: ${Math.round(f/totalFrames*100)}%`;
+      const elapsed=performance.now()-t0;
+      await new Promise(r=>setTimeout(r,Math.max(1,frameDelay-elapsed)));
+      if(f%fps===0)document.querySelector('.loading-box p').textContent=`Rendu: ${Math.round(f/totalFrames*100)}% (${Math.round(f/fps)}/${dur}s)`;
     }
     recorder.stop();
     if(restoreAudio)restoreAudio();
