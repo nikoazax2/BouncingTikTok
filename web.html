@@ -30,14 +30,14 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
 }
 
 @media(max-width:768px){
-  .app{grid-template-columns:1fr;grid-template-rows:1fr 40px}
+  .app{grid-template-columns:1fr;grid-template-rows:1fr 36px;height:100vh;height:100dvh}
   .sidebar{
-    position:fixed;inset:0;z-index:40;grid-row:auto;
+    position:fixed;top:0;left:0;bottom:0;width:85vw;max-width:320px;z-index:40;grid-row:auto;
     border-right:none;padding:16px 14px 80px;
     transform:translateX(-100%);transition:transform .25s ease;
   }
   .sidebar.open{transform:translateX(0)}
-  .preview{grid-column:1;grid-row:1}
+  .preview{grid-column:1;grid-row:1;width:100%;height:100%}
   .status{grid-column:1}
   .mobile-toggle{display:flex;align-items:center;justify-content:center}
 }
@@ -715,8 +715,8 @@ function applyPreset(name){
 // ---- Canvas sizing ----
 function resizeCanvas(){
   const c=document.querySelector('.preview');
-  const mh=c.clientHeight-20,mw=c.clientWidth-20;
-  const scale=Math.min(mw/VW,mh/VH);
+  const mh=Math.max(100,c.clientHeight-10),mw=Math.max(100,c.clientWidth-10);
+  const scale=Math.max(0.05,Math.min(mw/VW,mh/VH));
   canvas.width=Math.floor(VW*scale);canvas.height=Math.floor(VH*scale);canvas._scale=scale;
 }
 
