@@ -210,7 +210,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:3px}
       <div class="section-title">Physique</div>
       <div class="row"><label>Gravite</label><input type="range" id="gravity" min="0" max="1" step="0.01" value="0.57"><span class="val" id="gravity-val">0.57</span></div>
       <div class="row"><label>Alea rebond</label><input type="range" id="nudge" min="0" max="1" step="0.01" value="0.53"><span class="val" id="nudge-val">0.53</span></div>
-      <div class="row"><label>Perte energie</label><input type="range" id="energyLoss" min="0" max="0.5" step="0.01" value="0"><span class="val" id="energyLoss-val">0.00</span></div>
+      <div class="row"><label>Perte energie</label><input type="range" id="energyLoss" min="0" max="0.2" step="0.001" value="0"><span class="val" id="energyLoss-val">0.000</span></div>
     </div>
 
     <div class="section">
@@ -826,7 +826,8 @@ async function doExport(){
 
 function updateAllValues(){
   ['padding','rotation','thickness','speed','launchAngle','radius','trail'].forEach(id=>{const el=document.getElementById(id+'-val');if(el)el.textContent=document.getElementById(id).value});
-  ['gravity','nudge','energyLoss'].forEach(id=>{const el=document.getElementById(id+'-val');if(el)el.textContent=(+document.getElementById(id).value).toFixed(2)});
+  ['gravity','nudge'].forEach(id=>{const el=document.getElementById(id+'-val');if(el)el.textContent=(+document.getElementById(id).value).toFixed(2)});
+  {const el=document.getElementById('energyLoss-val');if(el)el.textContent=(+document.getElementById('energyLoss').value).toFixed(3)}
 }
 
 // ---- Init ----
@@ -990,6 +991,18 @@ function onTrackToggle(){
 window.addEventListener('load',async()=>{
   // Load default MIDI
   try{loadMidiFromBase64(DEFAULT_MIDI_B64,'song.mid')}catch(e){console.error('Default MIDI error',e)}
+  // Load default MP3
+  try{
+    const resp=await fetch('song.mp3');
+    if(resp.ok){
+      initAudio();
+      const buf=await resp.arrayBuffer();
+      mp3Buffer=await audioCtx.decodeAudioData(buf);
+      mp3Cursor=0;mp3Playing=false;mp3Mode=true;
+      document.getElementById('midiFilename').textContent='song.mp3';
+      document.getElementById('midiTracks').innerHTML='<div style="font-size:11px;color:var(--muted);margin-top:4px">Mode MP3 — 200ms par rebond</div>';
+    }
+  }catch(e){console.error('Default MP3 error',e)}
 
   document.getElementById('midiFile').addEventListener('change',async e=>{
     const file=e.target.files[0];if(!file)return;
