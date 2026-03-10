@@ -198,7 +198,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:3px}
 
     <div class="section">
       <div class="section-title">Balle</div>
-      <div class="row"><label>Vitesse</label><input type="range" id="speed" min="1" max="25" step="0.5" value="25"><span class="val" id="speed-val">25</span></div>
+      <div class="row"><label>Vitesse</label><input type="range" id="speed" min="1" max="50" step="0.5" value="40"><span class="val" id="speed-val">40</span></div>
       <div class="row"><label>Angle</label><input type="range" id="launchAngle" min="0" max="360" value="19"><span class="val" id="launchAngle-val">19</span></div>
       <div class="row" id="radius-row"><label>Taille</label><input type="range" id="radius" min="5" max="80" value="35"><span class="val" id="radius-val">35</span></div>
       <div class="row"><label>Trainee</label><input type="range" id="trail" min="0" max="200" value="30"><span class="val" id="trail-val">30</span></div>
@@ -689,7 +689,7 @@ const sim={
     this.frame++;
   },
 
-  render(ctx,scale){
+  render(ctx,scale,noShadow){
     const p=getParams();
     ctx.save();ctx.scale(scale,scale);
     ctx.fillStyle=p.bgColorHex;ctx.fillRect(0,0,VW,VH);
@@ -702,16 +702,26 @@ const sim={
     }else{
       const n=this.verts.length;let segIdx=0,totalSegs=0;const edgeSubs=[];
       for(let i=0;i<n;i++){const[x1,y1]=this.verts[i],[x2,y2]=this.verts[(i+1)%n];const ns=Math.max(1,Math.floor(Math.sqrt((x2-x1)**2+(y2-y1)**2)/20));edgeSubs.push(ns);totalSegs+=ns}
-      ctx.lineWidth=p.thickness+2;
-      for(let i=0;i<n;i++){const[x1,y1]=this.verts[i],[x2,y2]=this.verts[(i+1)%n];const ns=edgeSubs[i];
-        for(let j=0;j<ns;j++){const t1=j/ns,t2=(j+1)/ns;
-          const px1=x1+(x2-x1)*t1,py1=y1+(y2-y1)*t1,px2=x1+(x2-x1)*t2,py2=y1+(y2-y1)*t2;
-          const hue=(segIdx/totalSegs+this.frame*0.003)%1,[cr,cg,cb]=hsl2rgb(hue,1,0.5);
-          ctx.save();ctx.shadowColor=`rgb(${cr},${cg},${cb})`;ctx.shadowBlur=18*scale;
-          ctx.strokeStyle=`rgb(${cr},${cg},${cb})`;ctx.beginPath();ctx.moveTo(px1,py1);ctx.lineTo(px2,py2);ctx.stroke();ctx.restore();segIdx++}}
+      if(noShadow){
+        ctx.lineWidth=p.thickness+4;
+        for(let i=0;i<n;i++){const[x1,y1]=this.verts[i],[x2,y2]=this.verts[(i+1)%n];const ns=edgeSubs[i];
+          for(let j=0;j<ns;j++){const t1=j/ns,t2=(j+1)/ns;
+            const px1=x1+(x2-x1)*t1,py1=y1+(y2-y1)*t1,px2=x1+(x2-x1)*t2,py2=y1+(y2-y1)*t2;
+            const hue=(segIdx/totalSegs+this.frame*0.003)%1,[cr,cg,cb]=hsl2rgb(hue,1,0.5);
+            ctx.strokeStyle=`rgb(${cr},${cg},${cb})`;ctx.beginPath();ctx.moveTo(px1,py1);ctx.lineTo(px2,py2);ctx.stroke();segIdx++}}
+      }else{
+        ctx.lineWidth=p.thickness+2;
+        for(let i=0;i<n;i++){const[x1,y1]=this.verts[i],[x2,y2]=this.verts[(i+1)%n];const ns=edgeSubs[i];
+          for(let j=0;j<ns;j++){const t1=j/ns,t2=(j+1)/ns;
+            const px1=x1+(x2-x1)*t1,py1=y1+(y2-y1)*t1,px2=x1+(x2-x1)*t2,py2=y1+(y2-y1)*t2;
+            const hue=(segIdx/totalSegs+this.frame*0.003)%1,[cr,cg,cb]=hsl2rgb(hue,1,0.5);
+            ctx.save();ctx.shadowColor=`rgb(${cr},${cg},${cb})`;ctx.shadowBlur=18*scale;
+            ctx.strokeStyle=`rgb(${cr},${cg},${cb})`;ctx.beginPath();ctx.moveTo(px1,py1);ctx.lineTo(px2,py2);ctx.stroke();ctx.restore();segIdx++}}
+      }
 
       this.impacts=this.impacts.filter(fx=>{if(fx.t<=0)return false;
-        ctx.save();ctx.globalAlpha=Math.min(1,fx.t/15)*0.7;ctx.fillStyle='#fff';ctx.shadowColor='#fff';ctx.shadowBlur=20;
+        ctx.save();ctx.globalAlpha=Math.min(1,fx.t/15)*0.7;ctx.fillStyle='#fff';
+        if(!noShadow){ctx.shadowColor='#fff';ctx.shadowBlur=20}
         ctx.beginPath();ctx.arc(fx.x,fx.y,30+(15-fx.t)*4,0,Math.PI*2);ctx.fill();ctx.restore();fx.t--;return true});
     }
 
@@ -721,7 +731,7 @@ const sim={
     if(!(this.spawnTimer>0&&this.spawnTimer%4<2)){
       const angle=-Math.atan2(this.vy,this.vx);
       if(p.useImage&&ballImgLoaded){const sz=Math.max(4,Math.floor(this.radius*2));ctx.save();ctx.translate(this.x,this.y);ctx.rotate(angle);ctx.drawImage(ballImg,-sz/2,-sz/2,sz,sz);ctx.restore()}
-      else{const[br,bg,bb]=p.ballColor;ctx.save();ctx.shadowColor=`rgb(${br},${bg},${bb})`;ctx.shadowBlur=16;ctx.fillStyle=`rgb(${br},${bg},${bb})`;ctx.beginPath();ctx.arc(this.x,this.y,this.radius,0,Math.PI*2);ctx.fill();ctx.restore()}
+      else{const[br,bg,bb]=p.ballColor;ctx.save();if(!noShadow){ctx.shadowColor=`rgb(${br},${bg},${bb})`;ctx.shadowBlur=16}ctx.fillStyle=`rgb(${br},${bg},${bb})`;ctx.beginPath();ctx.arc(this.x,this.y,this.radius,0,Math.PI*2);ctx.fill();ctx.restore()}
     }
     ctx.restore();
   }
@@ -789,13 +799,9 @@ function resizeCanvas(){
 // ---- Loop ----
 let lastTime=0,exporting=false;
 function loop(){
+  if(exporting)return;
   requestAnimationFrame(loop);
-  if(exporting){
-    // During export: render at full resolution on main canvas
-    sim.step();sim.render(ctx,1);
-  }else{
-    sim.step();resizeCanvas();sim.render(ctx,canvas._scale||0.25);
-  }
+  sim.step();resizeCanvas();sim.render(ctx,canvas._scale||0.25);
   const now=performance.now(),fps=lastTime?Math.round(1000/(now-lastTime)):0;lastTime=now;
   document.getElementById('stats').textContent=`Image ${sim.frame} | ${sim.bounces} rebonds | ${sim.deaths} morts | ${fps} fps`;
 }
@@ -809,54 +815,40 @@ function togglePause(){
 async function doExport(){
   const btn=document.getElementById('exportBtn'),ld=document.getElementById('loading');
   btn.disabled=true;ld.classList.add('show');
+  document.querySelector('.loading-box p').textContent='Lancement du rendu...';
   try{
     const p=getParams();
-    const dur=p.duration;
-    // Use the preview canvas at full resolution
-    const savedW=canvas.width,savedH=canvas.height;
-    canvas.width=VW;canvas.height=VH;
-    // Setup stream from main canvas
-    const stream=canvas.captureStream(60);
-    let audioDest=null;
-    if(audioCtx){
-      audioDest=audioCtx.createMediaStreamDestination();
-      stream.addTrack(audioDest.stream.getAudioTracks()[0]);
-      // Route audio to both speakers and recorder
-      const realDest=audioCtx.destination;
-      Object.defineProperty(audioCtx,'destination',{get:()=>audioDest,configurable:true});
-      var restoreAudio=()=>Object.defineProperty(audioCtx,'destination',{get:()=>realDest,configurable:true});
-    }
-    const mimeType=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'].find(m=>MediaRecorder.isTypeSupported(m))||'video/webm';
-    const recorder=new MediaRecorder(stream,{mimeType,videoBitsPerSecond:8000000});
-    const chunks=[];
-    recorder.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data)};
-    // Reset and start recording
-    sim.reset();
-    exporting=true; // flag: loop renders at full res
-    recorder.start();
-    // Let the normal rAF loop run for `dur` seconds, rendering at full res
-    const startTime=performance.now();
-    await new Promise(resolve=>{
-      function check(){
-        const elapsed=(performance.now()-startTime)/1000;
-        document.querySelector('.loading-box p').textContent=`Enregistrement: ${Math.round(elapsed/dur*100)}% (${Math.round(elapsed)}/${dur}s)`;
-        if(elapsed>=dur)resolve();
-        else requestAnimationFrame(check);
-      }
-      requestAnimationFrame(check);
-    });
-    recorder.stop();
-    if(restoreAudio)restoreAudio();
-    await new Promise(r=>{recorder.onstop=r});
-    const blob=new Blob(chunks,{type:mimeType});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');a.href=url;a.download='bouncing_tiktok.webm';a.click();
-    setTimeout(()=>URL.revokeObjectURL(url),5000);
+    const body={
+      shape:p.shape,padding:p.padding,rotation:p.rotation,thickness:p.thickness,
+      spikes:p.spikes,speed:p.speed,launchAngle:p.launchAngle,radius:p.radius,
+      trail:p.trail,useImage:p.useImage,growth:p.growth,
+      gravity:p.gravity,nudge:p.nudge,energyLoss:p.energyLoss,
+      bgColor:p.bgColorHex,shapeColor:p.shapeColorHex,ballColor:p.ballColorHex,
+      duration:p.duration,fps:p.fps,mp3Chunk:getMp3Chunk(),
+      mp3Mode:mp3Mode,selectedChannels:selectedChannels
+    };
+    // Start export subprocess
+    const startResp=await fetch('/api/export-start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!startResp.ok)throw new Error('Erreur lancement export');
+    const{uid}=await startResp.json();
+    // Poll until ready
     document.querySelector('.loading-box p').textContent='Rendu en cours...';
-    // Restore canvas size
-    canvas.width=savedW;canvas.height=savedH;
+    let ready=false;
+    while(!ready){
+      await new Promise(r=>setTimeout(r,2000));
+      const poll=await fetch('/api/export-poll/'+uid);
+      const st=await poll.json();
+      ready=st.ready;
+      document.querySelector('.loading-box p').textContent='Rendu en cours...';
+    }
+    // Download
+    const dlResp=await fetch('/static/_output_'+uid+'.mp4');
+    const blob=await dlResp.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download='bouncing_tiktok.mp4';a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),5000);
   }catch(e){alert('Erreur export : '+e)}
-  finally{exporting=false;btn.disabled=false;ld.classList.remove('show');sim.reset()}
+  finally{btn.disabled=false;ld.classList.remove('show')}
 }
 
 function updateAllValues(){

@@ -37,6 +37,8 @@ class SceneConfig:
     shape_rotation: float = 0.0  # degrees
     bg_color: tuple = (10, 10, 15)
     gravity: float = 0.0  # 0 = no gravity, positive = downward
+    nudge: float = 0.18  # random angle perturbation on bounce (radians)
+    energy_loss: float = 0.0  # fraction of speed lost per bounce
     balls: list[BallConfig] = field(default_factory=lambda: [BallConfig()])
     music_file: str | None = None  # path to music file
     sound_on_bounce: bool = True
@@ -45,6 +47,11 @@ class SceneConfig:
         60, 62, 64, 65, 67, 69, 71, 72  # C major scale MIDI notes
     ])
     spikes: bool = True
+    growth: bool = False
+    use_image: bool = False
+    mp3_mode: bool = False
+    selected_channels: list[int] | None = None
+    mp3_chunk_ms: int = 200
     duration: int = DURATION
     fps: int = FPS
     output_file: str = "output.mp4"

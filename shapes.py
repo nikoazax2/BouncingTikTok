@@ -90,14 +90,15 @@ def point_in_polygon(px: float, py: float, vertices: list[tuple[float, float]]) 
 
 
 def closest_edge_collision(bx: float, by: float, radius: float, vx: float, vy: float,
-                           vertices: list[tuple[float, float]]) -> tuple[float, float, bool]:
-    """Check collision with polygon edges and return reflected velocity.
+                           vertices: list[tuple[float, float]]) -> tuple[float, float, bool, float, float]:
+    """Check collision with polygon edges and return reflected velocity + penetration correction.
 
-    Returns (new_vx, new_vy, did_collide).
+    Returns (new_vx, new_vy, did_collide, push_x, push_y).
     """
     n = len(vertices)
     collided = False
     new_vx, new_vy = vx, vy
+    px, py = 0.0, 0.0
 
     for i in range(n):
         x1, y1 = vertices[i]
@@ -133,12 +134,16 @@ def closest_edge_collision(bx: float, by: float, radius: float, vx: float, vy: f
                 if d1 > radius and d2 > radius:
                     continue
 
+            # Penetration correction
+            pen = radius - dist
+            px += nx * pen
+            py += ny * pen
+
             # Only reflect if moving toward the edge
             vel_dot_normal = new_vx * nx + new_vy * ny
             if vel_dot_normal < 0:
-                # Reflect velocity
                 new_vx = new_vx - 2 * vel_dot_normal * nx
                 new_vy = new_vy - 2 * vel_dot_normal * ny
                 collided = True
 
-    return new_vx, new_vy, collided
+    return new_vx, new_vy, collided, px, py

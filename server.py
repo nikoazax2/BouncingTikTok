@@ -1,9 +1,8 @@
 """Web GUI server for BouncingTikTok."""
 
 import os
-import math
-import threading
-from flask import Flask, send_from_directory, request, jsonify, send_file
+import sys
+from flask import Flask, send_from_directory, request, jsonify
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, static_folder=PROJECT_DIR, static_url_path="/static")
@@ -131,38 +130,30 @@ def midi_notes():
     return jsonify([[60], [62], [64], [65], [67], [69], [71], [72]])
 
 
-@app.route("/api/export", methods=["POST"])
-def export():
-    from config import SceneConfig, BallConfig
-    from renderer import render_scene
+@app.route("/api/export-start", methods=["POST"])
+def export_start():
+    """Launch export subprocess and return uid for polling."""
+    import json, uuid, subprocess
     p = request.json
-    speed = p.get("speed", 13)
-    la = p.get("launchAngle", 19)
-    scene = SceneConfig(
-        shape=p.get("shape", "circle"),
-        shape_color=tuple(p.get("shapeColor", [255, 255, 255])),
-        shape_thickness=p.get("thickness", 3),
-        shape_padding=p.get("padding", 100),
-        shape_rotation=p.get("rotation", 0),
-        bg_color=tuple(p.get("bgColor", [10, 10, 15])),
-        gravity=p.get("gravity", 0.2),
-        balls=[BallConfig(
-            radius=p.get("radius", 20),
-            color=tuple(p.get("ballColor", [255, 100, 50])),
-            speed_x=speed * math.sin(math.radians(la)),
-            speed_y=speed * math.cos(math.radians(la)),
-            trail_length=p.get("trail", 30),
-        )],
-        spikes=p.get("spikes", False),
-        duration=p.get("duration", 40),
-        fps=p.get("fps", 60),
-        output_file=os.path.join(PROJECT_DIR, "output.mp4"),
+    uid = uuid.uuid4().hex[:8]
+    params_file = os.path.join(PROJECT_DIR, f"_export_params_{uid}.json")
+    output_file = os.path.join(PROJECT_DIR, f"_output_{uid}.mp4")
+    with open(params_file, "w") as f:
+        json.dump(p, f)
+    subprocess.Popen(
+        [sys.executable, os.path.join(PROJECT_DIR, "_do_export.py"), params_file, output_file],
+        cwd=PROJECT_DIR
     )
-    output = render_scene(scene)
-    return send_file(output, as_attachment=True, download_name="bouncing_tiktok.mp4")
+    return jsonify({"uid": uid})
+
+@app.route("/api/export-poll/<uid>")
+def export_poll(uid):
+    output_file = os.path.join(PROJECT_DIR, f"_output_{uid}.mp4")
+    if os.path.exists(output_file):
+        return jsonify({"ready": True})
+    return jsonify({"ready": False})
 
 
 if __name__ == "__main__":
-    import webbrowser
-    webbrowser.open("http://localhost:5000")
+    print("Server: http://localhost:5000")
     app.run(debug=False, port=5000)

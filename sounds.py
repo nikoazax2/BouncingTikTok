@@ -106,7 +106,8 @@ def extract_notes_from_midi(midi_path: str, channel: int | None = None,
 def create_bounce_soundtrack(bounce_events: list[tuple[float, str]], total_duration: float,
                              note_sequence: list[int], sample_rate: int = 44100,
                              music_path: str | None = None, midi_path: str | None = None,
-                             chunk_ms: int = 500) -> str:
+                             chunk_ms: int = 500,
+                             filter_channels: list[int] | None = None) -> str:
     """Create a WAV file with bounce sounds at specified times.
 
     Priority: MIDI file > MP3 chunks > synthetic notes.
@@ -123,7 +124,7 @@ def create_bounce_soundtrack(bounce_events: list[tuple[float, str]], total_durat
 
     if midi_path and os.path.exists(midi_path):
         print(f"  Loading MIDI: {midi_path}")
-        midi_notes = extract_notes_from_midi(midi_path)
+        midi_notes = extract_notes_from_midi(midi_path, filter_channels=filter_channels)
         print(f"  Found {len(midi_notes)} notes in MIDI")
     elif music_path and os.path.exists(music_path):
         print(f"  Loading music: {music_path}")
@@ -147,13 +148,20 @@ def create_bounce_soundtrack(bounce_events: list[tuple[float, str]], total_durat
             audio[start_out:end_out] += death_sound[:end_out - start_out]
         else:
             if midi_notes is not None:
-                # Play the next MIDI note as a marimba tone
-                midi_note = midi_notes[note_idx % len(midi_notes)]
+                chord = midi_notes[note_idx % len(midi_notes)]
                 note_idx += 1
-                freq = midi_to_freq(midi_note)
-                tone = generate_synth_lead(freq, duration=0.5, sample_rate=sample_rate, volume=0.6)
-                end_out = min(start_out + len(tone), total_samples)
-                audio[start_out:end_out] += tone[:end_out - start_out]
+                # chord can be int, or list of ints, or list of dicts with "n" key
+                if isinstance(chord, (int, float)):
+                    notes_to_play = [int(chord)]
+                elif isinstance(chord, list):
+                    notes_to_play = [item["n"] if isinstance(item, dict) else int(item) for item in chord]
+                else:
+                    notes_to_play = [60]
+                for midi_note in notes_to_play:
+                    freq = midi_to_freq(midi_note)
+                    tone = generate_synth_lead(freq, duration=0.5, sample_rate=sample_rate, volume=0.6 / max(1, len(notes_to_play)))
+                    end_out = min(start_out + len(tone), total_samples)
+                    audio[start_out:end_out] += tone[:end_out - start_out]
             elif music_data is not None:
                 start_music = music_cursor
                 end_music = start_music + chunk_samples

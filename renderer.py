@@ -149,18 +149,14 @@ class Ball:
         self.index = index
         self.x = VIDEO_WIDTH / 2.0
         self.y = VIDEO_HEIGHT / 2.0
-        # Initial launch: straight down, 1° offset to the right
-        speed = math.sqrt(cfg.speed_x ** 2 + cfg.speed_y ** 2)
-        self.vx = speed * math.sin(math.radians(19))   # tiny rightward
-        self.vy = speed * math.cos(math.radians(19))   # almost full speed downward
+        self.vx = cfg.speed_x
+        self.vy = cfg.speed_y
         self.base_radius = cfg.radius
-        self.radius = 5  # start small
+        self.radius = cfg.radius
         self.grow_speed = 0  # set externally if needed
         self.grow_frame = None  # for exponential growth
         self.grow_total = 0
         self.grow_start = 5
-        self.trail: list[tuple[float, float]] = []
-        self.max_trail = 120  # 0 = infinite
         self.emoji_surface = None
         self.image_surface = None  # loaded from ball.png
         self.angle = 0.0  # current rotation angle in degrees
@@ -170,10 +166,8 @@ class Ball:
     def respawn(self):
         self.x = VIDEO_WIDTH / 2.0
         self.y = VIDEO_HEIGHT / 2.0
-        speed = math.sqrt(self.cfg.speed_x ** 2 + self.cfg.speed_y ** 2)
-        self.vx = speed * math.sin(math.radians(19))
-        self.vy = speed * math.cos(math.radians(19))
-        self.trail.clear()
+        self.vx = self.cfg.speed_x
+        self.vy = self.cfg.speed_y
         self.alive = True
         self.spawn_timer = 20
 
@@ -202,7 +196,8 @@ class Ball:
 
     def update(self, gravity: float, vertices: list[tuple[float, float]],
                spikes: list[Spike], dead_balls: list[DeadBall],
-               has_spikes: bool = True
+               has_spikes: bool = True,
+               nudge: float = 0.3, energy_loss: float = 0.0
                ) -> tuple[str | None, Spike | None]:
         if not self.alive:
             return None, None
@@ -221,26 +216,21 @@ class Ball:
             self.radius = int(self.grow_start + (self.base_radius - self.grow_start) * (t ** 3))
             self.grow_frame += 1
 
-        self.trail.append((self.x, self.y))
-        if self.max_trail > 0 and len(self.trail) > self.max_trail:
-            self.trail.pop(0)
-
         self.x += self.vx
         self.y += self.vy
 
         # 1) Check collision with circle border → MUSIC
-        new_vx, new_vy, wall_hit = closest_edge_collision(
+        new_vx, new_vy, wall_hit, px, py = closest_edge_collision(
             self.x, self.y, self.radius, self.vx, self.vy, vertices
         )
+        self.x += px
+        self.y += py
         if wall_hit:
-            # Preserve speed + add random angle perturbation to prevent rolling
-            old_speed = math.sqrt(self.vx ** 2 + self.vy ** 2)
+            old_speed = math.sqrt(self.vx ** 2 + self.vy ** 2) * (1 - energy_loss)
             angle = math.atan2(new_vy, new_vx)
-            angle += random.uniform(-0.3, 0.3)  # ~±17° random nudge
+            angle += random.uniform(-nudge, nudge)
             self.vx = old_speed * math.cos(angle)
             self.vy = old_speed * math.sin(angle)
-            self.x += self.vx * 0.5
-            self.y += self.vy * 0.5
             return EVENT_MUSIC, None
 
         # 2) Check collision with dead balls → MUSIC (they act as walls)
@@ -282,22 +272,6 @@ class Ball:
         if not self.alive:
             return
 
-        # Draw rainbow trail
-        import colorsys
-        for i, (tx, ty) in enumerate(self.trail):
-            ratio = (i + 1) / len(self.trail) if self.trail else 0
-            alpha = int(255 * ratio * 0.7)
-            if alpha <= 0:
-                continue
-            # Rainbow: hue shifts along the trail + over time
-            hue = ((i * 0.02) + frame_idx * 0.002) % 1.0
-            r, g, b = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
-            color = (int(r * 255), int(g * 255), int(b * 255), alpha)
-            t_radius = max(2, int(self.radius * ratio * 0.8))
-            trail_surf = pygame.Surface((t_radius * 2, t_radius * 2), pygame.SRCALPHA)
-            pygame.draw.circle(trail_surf, color, (t_radius, t_radius), t_radius)
-            surface.blit(trail_surf, (int(tx) - t_radius, int(ty) - t_radius))
-
         if self.spawn_timer > 0 and self.spawn_timer % 4 < 2:
             return
 
@@ -305,7 +279,6 @@ class Ball:
         self.angle = -math.degrees(math.atan2(self.vy, self.vx))
 
         if self.image_surface:
-            # Scale image to current radius * 2
             size = max(4, int(self.radius * 2))
             scaled = pygame.transform.scale(self.image_surface, (size, size))
             rotated = pygame.transform.rotate(scaled, self.angle)
@@ -315,18 +288,14 @@ class Ball:
             rect = self.emoji_surface.get_rect(center=(int(self.x), int(self.y)))
             surface.blit(self.emoji_surface, rect)
         else:
-            for r_offset in range(3, 0, -1):
-                glow_alpha = 60 * r_offset
-                glow_r = self.radius + r_offset * 4
-                glow_surf = pygame.Surface((glow_r * 2, glow_r * 2), pygame.SRCALPHA)
-                glow_color = (*self.cfg.color[:3], min(255, glow_alpha))
-                pygame.draw.circle(glow_surf, glow_color, (glow_r, glow_r), glow_r)
-                surface.blit(glow_surf, (int(self.x) - glow_r, int(self.y) - glow_r))
-
+            # Glow (matches JS shadowBlur=16)
+            glow_r = self.radius + 16
+            glow_surf = pygame.Surface((glow_r * 2, glow_r * 2), pygame.SRCALPHA)
+            glow_color = (*self.cfg.color[:3], 80)
+            pygame.draw.circle(glow_surf, glow_color, (glow_r, glow_r), glow_r)
+            surface.blit(glow_surf, (int(self.x) - glow_r, int(self.y) - glow_r))
+            # Solid ball
             pygame.draw.circle(surface, self.cfg.color, (int(self.x), int(self.y)), self.radius)
-            highlight_pos = (int(self.x - self.radius * 0.3), int(self.y - self.radius * 0.3))
-            highlight_r = max(2, self.radius // 3)
-            pygame.draw.circle(surface, (255, 255, 255, 180), highlight_pos, highlight_r)
 
 
 def render_scene(scene: SceneConfig, preview: bool = False) -> str:
@@ -354,27 +323,32 @@ def render_scene(scene: SceneConfig, preview: bool = False) -> str:
     ball_cfg = scene.balls[0]
     ball = Ball(ball_cfg, 0)
     ball.init_emoji_surface()
-    ball_png = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ball.png")
-    ball.init_image(ball_png)
-    if not scene.spikes:
-        ball.max_trail = 0  # infinite trail
+    if scene.use_image:
+        ball_png = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ball.png")
+        ball.init_image(ball_png)
 
     dead_balls: list[DeadBall] = []
     impact_effects: list[tuple[float, float, int]] = []  # (x, y, timer)
     total_frames = scene.duration * scene.fps
 
-    if not scene.spikes:
+    if not scene.spikes and scene.growth:
         ball.radius = 5
-        ball.base_radius = int(circle_r * 0.6)  # grow to 60% of circle
+        ball.base_radius = int(circle_r * 0.6)
         ball.grow_speed = (ball.base_radius - 5) / total_frames
     bounce_events: list[tuple[float, str]] = []
     frames: list[np.ndarray] = []
     death_count = 0
+    # Persistent trail surface (like JS trailCtx)
+    trail_surface = pygame.Surface((VIDEO_WIDTH, VIDEO_HEIGHT), pygame.SRCALPHA)
+    trail_surface.fill((0, 0, 0, 0))
+    has_spikes = bool(spikes)
+    trail_length = ball_cfg.trail_length if ball_cfg.trail_length > 0 else 0
 
     print(f"Rendering {total_frames} frames at {scene.fps} FPS...")
     print(f"  {len(spikes)} spikes around the circle border")
 
     clock = pygame.time.Clock()
+    import colorsys as _cs
 
     for frame_idx in range(total_frames):
         if preview:
@@ -383,29 +357,66 @@ def render_scene(scene: SceneConfig, preview: bool = False) -> str:
                     pygame.quit()
                     return ""
 
+        # 1) Paint trail dot at ball position (before move, like JS)
+        if ball.alive:
+            hue = (frame_idx * 0.01) % 1.0
+            tr, tg, tb = _cs.hsv_to_rgb(hue, 1.0, 1.0)
+            t_rad = max(2, int(ball.radius * 0.8))
+            trail_color = (int(tr * 255), int(tg * 255), int(tb * 255), 178)  # 0.7 * 255
+            t_surf = pygame.Surface((t_rad * 2, t_rad * 2), pygame.SRCALPHA)
+            pygame.draw.circle(t_surf, trail_color, (t_rad, t_rad), t_rad)
+            trail_surface.blit(t_surf, (int(ball.x) - t_rad, int(ball.y) - t_rad))
+
+        # 2) Fade trail if spikes mode (like JS destination-out)
+        if has_spikes and trail_length > 0:
+            fade_alpha = max(1, int(255 / trail_length))
+            fade_surf = pygame.Surface((VIDEO_WIDTH, VIDEO_HEIGHT), pygame.SRCALPHA)
+            fade_surf.fill((0, 0, 0, fade_alpha))
+            trail_surface.blit(fade_surf, (0, 0), special_flags=pygame.BLEND_RGBA_SUB)
+
         surface.fill(scene.bg_color)
 
         if spikes:
             for spike in spikes:
                 spike.draw(surface)
+            # Draw shape border (like JS)
+            int_verts = [(int(v[0]), int(v[1])) for v in vertices]
+            pygame.draw.polygon(surface, scene.shape_color, int_verts, scene.shape_thickness)
         else:
-            import colorsys as _cs
-            # Rainbow border: draw arc segments with shifting hue
-            num_segments = 120
+            # Rainbow border: draw segments with shifting hue (like JS)
+            n_verts = len(vertices)
+            seg_idx = 0
+            total_segs = 0
+            edge_subs = []
+            for vi in range(n_verts):
+                x1, y1 = vertices[vi]
+                x2, y2 = vertices[(vi + 1) % n_verts]
+                ns = max(1, int(math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2) / 20))
+                edge_subs.append(ns)
+                total_segs += ns
+
             border_surf = pygame.Surface((VIDEO_WIDTH, VIDEO_HEIGHT), pygame.SRCALPHA)
-            for seg_i in range(num_segments):
-                a1 = 2 * math.pi * seg_i / num_segments
-                a2 = 2 * math.pi * (seg_i + 1) / num_segments
-                hue = ((seg_i / num_segments) + frame_idx * 0.003) % 1.0
-                r, g, b = _cs.hsv_to_rgb(hue, 1.0, 1.0)
-                seg_color = (int(r * 255), int(g * 255), int(b * 255))
-                p1 = (int(cx + circle_r * math.cos(a1)), int(cy + circle_r * math.sin(a1)))
-                p2 = (int(cx + circle_r * math.cos(a2)), int(cy + circle_r * math.sin(a2)))
-                # Glow layer
-                pygame.draw.line(border_surf, (*seg_color, 60), p1, p2, scene.shape_thickness + 12)
-                pygame.draw.line(border_surf, (*seg_color, 100), p1, p2, scene.shape_thickness + 6)
-                # Main line
-                pygame.draw.line(border_surf, (*seg_color, 255), p1, p2, scene.shape_thickness + 2)
+            seg_idx = 0
+            for vi in range(n_verts):
+                x1, y1 = vertices[vi]
+                x2, y2 = vertices[(vi + 1) % n_verts]
+                ns = edge_subs[vi]
+                for j in range(ns):
+                    t1 = j / ns
+                    t2 = (j + 1) / ns
+                    px1 = x1 + (x2 - x1) * t1
+                    py1 = y1 + (y2 - y1) * t1
+                    px2 = x1 + (x2 - x1) * t2
+                    py2 = y1 + (y2 - y1) * t2
+                    hue = ((seg_idx / total_segs) + frame_idx * 0.003) % 1.0
+                    r, g, b = _cs.hsv_to_rgb(hue, 1.0, 1.0)
+                    seg_color = (int(r * 255), int(g * 255), int(b * 255))
+                    # Glow layers
+                    pygame.draw.line(border_surf, (*seg_color, 60), (int(px1), int(py1)), (int(px2), int(py2)), scene.shape_thickness + 12)
+                    pygame.draw.line(border_surf, (*seg_color, 100), (int(px1), int(py1)), (int(px2), int(py2)), scene.shape_thickness + 6)
+                    # Main line
+                    pygame.draw.line(border_surf, (*seg_color, 255), (int(px1), int(py1)), (int(px2), int(py2)), scene.shape_thickness + 2)
+                    seg_idx += 1
             surface.blit(border_surf, (0, 0))
 
             # Draw impact effects
@@ -424,13 +435,15 @@ def render_scene(scene: SceneConfig, preview: bool = False) -> str:
         for db in dead_balls:
             db.draw(surface)
 
+        # Blit persistent trail
+        surface.blit(trail_surface, (0, 0))
+
         # Update ball
-        event_type, hit_spike = ball.update(scene.gravity, vertices, spikes, dead_balls, has_spikes=scene.spikes)
+        event_type, hit_spike = ball.update(scene.gravity, vertices, spikes, dead_balls, has_spikes=scene.spikes, nudge=scene.nudge, energy_loss=scene.energy_loss)
 
         if event_type == EVENT_MUSIC:
             bounce_events.append((frame_idx / scene.fps, EVENT_MUSIC))
             if not spikes:
-                # Impact effect at the closest border point
                 dx = ball.x - cx
                 dy = ball.y - cy
                 dist = math.sqrt(dx * dx + dy * dy)
@@ -443,6 +456,7 @@ def render_scene(scene: SceneConfig, preview: bool = False) -> str:
             death_count += 1
             dead_balls.append(DeadBall(ball.x, ball.y, ball.radius, ball.cfg.color))
             ball.respawn()
+            trail_surface.fill((0, 0, 0, 0))  # clear trail on death (like JS)
 
         ball.draw(surface, frame_idx)
 
@@ -466,27 +480,31 @@ def render_scene(scene: SceneConfig, preview: bool = False) -> str:
     music_count = sum(1 for _, e in bounce_events if e == EVENT_MUSIC)
     death_event_count = sum(1 for _, e in bounce_events if e == EVENT_DEATH)
 
-    # Auto-detect MIDI or MP3
+    # Detect music source based on user's mode
     import glob
     script_dir = os.path.dirname(os.path.abspath(__file__))
     midi_path = None
     music_path = scene.music_file
 
-    # MIDI has priority
-    mid_files = glob.glob(os.path.join(script_dir, "*.mid")) + glob.glob(os.path.join(script_dir, "*.midi"))
-    if mid_files:
-        midi_path = mid_files[0]
-        print(f"Auto-detected MIDI: {os.path.basename(midi_path)}")
-    elif not music_path:
+    if scene.mp3_mode:
+        # MP3 mode: find MP3 file
         mp3_files = glob.glob(os.path.join(script_dir, "*.mp3"))
         if mp3_files:
             music_path = mp3_files[0]
-            print(f"Auto-detected music: {os.path.basename(music_path)}")
+            print(f"Using MP3: {os.path.basename(music_path)}")
+    else:
+        # MIDI mode: find MIDI file
+        mid_files = glob.glob(os.path.join(script_dir, "*.mid")) + glob.glob(os.path.join(script_dir, "*.midi"))
+        if mid_files:
+            midi_path = mid_files[0]
+            print(f"Using MIDI: {os.path.basename(midi_path)}")
 
     print(f"Generating soundtrack ({music_count} music bounces, {death_event_count} deaths)...")
     wav_path = create_bounce_soundtrack(
         bounce_events, scene.duration, scene.note_sequence,
-        music_path=music_path, midi_path=midi_path, chunk_ms=250
+        music_path=music_path, midi_path=midi_path,
+        chunk_ms=scene.mp3_chunk_ms,
+        filter_channels=scene.selected_channels,
     )
 
     print("Encoding video...")
