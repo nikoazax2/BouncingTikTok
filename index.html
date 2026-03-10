@@ -209,8 +209,8 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:3px}
     <div class="section">
       <div class="section-title">Physique</div>
       <div class="row"><label>Gravite</label><input type="range" id="gravity" min="0" max="1" step="0.01" value="0.57"><span class="val" id="gravity-val">0.57</span></div>
-      <div class="row"><label>Alea rebond</label><input type="range" id="nudge" min="0" max="1" step="0.01" value="0.53"><span class="val" id="nudge-val">0.53</span></div>
-      <div class="row"><label>Perte energie</label><input type="range" id="energyLoss" min="0" max="0.2" step="0.001" value="0"><span class="val" id="energyLoss-val">0.000</span></div>
+      <div class="row"><label>Alea rebond</label><input type="range" id="nudge" min="0" max="1" step="0.01" value="0.18"><span class="val" id="nudge-val">0.18</span></div>
+      <div class="row"><label>Perte energie</label><input type="range" id="energyLoss" min="0" max="0.2" step="0.001" value="0.032"><span class="val" id="energyLoss-val">0.032</span></div>
     </div>
 
     <div class="section">
@@ -225,6 +225,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:3px}
       <label class="midi-file-label"><input type="file" id="midiFile" accept=".mid,.midi,.mp3,.wav,.ogg,.m4a">Importer MIDI ou MP3</label>
       <div class="midi-filename" id="midiFilename"></div>
       <div class="midi-tracks" id="midiTracks"></div>
+      <div class="row" style="margin-top:6px"><label>Temps musique</label><input type="range" id="mp3Chunk" min="0.05" max="1" step="0.01" value="0.20"><span class="val" id="mp3Chunk-val">0.20</span><span class="val">sec</span></div>
     </div>
 
     <div class="section">
@@ -236,6 +237,10 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:3px}
     <div class="actions">
       <button class="btn btn-secondary" onclick="sim.reset()">Reinitialiser</button>
       <button class="btn btn-secondary" id="pauseBtn" onclick="togglePause()">Pause</button>
+    </div>
+    <div class="actions" style="margin-top:4px">
+      <button class="btn btn-secondary" onclick="copyParams()">Copier params</button>
+      <button class="btn btn-secondary" onclick="pasteParams()">Coller params</button>
     </div>
     <button class="btn btn-export" id="exportBtn" onclick="doExport()">Exporter la video</button>
   </aside>
@@ -267,7 +272,7 @@ const DEFAULT_MIDI_B64="TVRoZAAAAAYAAAABAeBNVHJrAADmfAD/Aw4yMTkxX1BhcGFvdXRhaQD/
 let audioCtx=null, midiSequence=[[60],[62],[64],[65],[67],[69],[71],[72]], noteIdx=0, audioReady=false;
 // MP3 mode
 let mp3Buffer=null, mp3Cursor=0, mp3Source=null, mp3Playing=false, mp3Mode=false;
-const MP3_CHUNK=0.2; // 200ms per bounce
+function getMp3Chunk(){return +document.getElementById('mp3Chunk').value||0.2}
 
 function midiToFreq(n){return 440*Math.pow(2,(n-69)/12)}
 
@@ -277,6 +282,13 @@ function initAudio(){
   if(audioCtx.state==='suspended')audioCtx.resume();
   audioReady=true;
   document.getElementById('clickHint').style.opacity='0';
+  // Decode pending MP3 if any
+  if(window._pendingMp3){
+    const raw=window._pendingMp3;delete window._pendingMp3;
+    audioCtx.decodeAudioData(raw).then(buf=>{
+      mp3Buffer=buf;mp3Cursor=0;mp3Playing=false;mp3Mode=true;
+    }).catch(e=>console.error('MP3 decode error',e));
+  }
 }
 
 // Channel→GM program mapping (set by loadMidiInfo)
@@ -468,7 +480,7 @@ function playBounceMp3(){
   const t=audioCtx.currentTime;
   const remain=mp3Buffer.duration-mp3Cursor;
   if(remain<=0){mp3Cursor=0;}
-  const dur=Math.min(MP3_CHUNK,mp3Buffer.duration-mp3Cursor);
+  const dur=Math.min(getMp3Chunk(),mp3Buffer.duration-mp3Cursor);
   if(dur<=0)return;
   const src=audioCtx.createBufferSource();
   src.buffer=mp3Buffer;
@@ -529,7 +541,7 @@ function getShapeVertices(shape,padding,rotation){
 }
 
 function closestEdgeCollision(bx,by,rad,vx,vy,verts){
-  const n=verts.length;let nvx=vx,nvy=vy,hit=false;
+  const n=verts.length;let nvx=vx,nvy=vy,hit=false,px=0,py=0;
   for(let i=0;i<n;i++){
     const[x1,y1]=verts[i],[x2,y2]=verts[(i+1)%n];
     let ex=x2-x1,ey=y2-y1,el=Math.sqrt(ex*ex+ey*ey);if(!el)continue;
@@ -539,11 +551,12 @@ function closestEdgeCollision(bx,by,rad,vx,vy,verts){
     if(dist<rad){
       const t=(dx*ex/el+dy*ey/el)/el;
       if(t<-0.1||t>1.1){if(Math.sqrt((bx-x1)**2+(by-y1)**2)>rad&&Math.sqrt((bx-x2)**2+(by-y2)**2)>rad)continue}
+      const pen=rad-dist;px+=nx*pen;py+=ny*pen;
       const vdn=nvx*nx+nvy*ny;
       if(vdn<0){nvx-=2*vdn*nx;nvy-=2*vdn*ny;hit=true}
     }
   }
-  return{vx:nvx,vy:nvy,hit};
+  return{vx:nvx,vy:nvy,hit,px,py};
 }
 
 function pointInPolygon(px,py,v){
@@ -643,11 +656,11 @@ const sim={
     this.x+=this.vx;this.y+=this.vy;
 
     const col=closestEdgeCollision(this.x,this.y,this.radius,this.vx,this.vy,this.verts);
+    this.x+=col.px;this.y+=col.py;
     if(col.hit){
       const spd=Math.sqrt(this.vx**2+this.vy**2)*(1-p.energyLoss);
       let a=Math.atan2(col.vy,col.vx)+((Math.random()-0.5)*2*p.nudge);
       this.vx=spd*Math.cos(a);this.vy=spd*Math.sin(a);
-      this.x+=this.vx*0.5;this.y+=this.vy*0.5;
       this.bounces++;playBounce();
       if(!hasSpikes){const[ix,iy]=closestPointOnPoly(this.x,this.y,this.verts);this.impacts.push({x:ix,y:iy,t:15})}
     }
@@ -743,6 +756,28 @@ function applyPreset(name){
   sim.reset();
 }
 
+const PARAM_IDS=['shape','padding','rotation','thickness','spikes','speed','launchAngle','radius','trail','useImage','growth','gravity','nudge','energyLoss','mp3Chunk','bgColor','shapeColor','ballColor','duration','fps'];
+
+function copyParams(){
+  const p={};
+  PARAM_IDS.forEach(id=>{const el=document.getElementById(id);if(el){p[id]=el.type==='checkbox'?el.checked:el.value}});
+  navigator.clipboard.writeText(JSON.stringify(p)).then(()=>{
+    const btn=event.target;btn.textContent='Copie !';setTimeout(()=>btn.textContent='Copier params',1000);
+  });
+}
+
+function pasteParams(){
+  navigator.clipboard.readText().then(txt=>{
+    let p;try{p=JSON.parse(txt)}catch(e){return alert('Presse-papier invalide')}
+    const set=(id,val)=>{const el=document.getElementById(id);if(el&&val!==undefined){if(el.type==='checkbox')el.checked=!!val;else el.value=val}};
+    PARAM_IDS.forEach(id=>set(id,p[id]));
+    updateAllValues();
+    const rr=document.getElementById('radius-row'),ge=document.getElementById('growth');
+    if(rr&&ge)rr.style.display=ge.checked?'none':'';
+    sim.reset();
+  });
+}
+
 // ---- Canvas sizing ----
 function resizeCanvas(){
   const c=document.querySelector('.preview');
@@ -828,6 +863,7 @@ function updateAllValues(){
   ['padding','rotation','thickness','speed','launchAngle','radius','trail'].forEach(id=>{const el=document.getElementById(id+'-val');if(el)el.textContent=document.getElementById(id).value});
   ['gravity','nudge'].forEach(id=>{const el=document.getElementById(id+'-val');if(el)el.textContent=(+document.getElementById(id).value).toFixed(2)});
   {const el=document.getElementById('energyLoss-val');if(el)el.textContent=(+document.getElementById('energyLoss').value).toFixed(3)}
+  {const el=document.getElementById('mp3Chunk-val');if(el)el.textContent=(+document.getElementById('mp3Chunk').value).toFixed(2)}
 }
 
 // ---- Init ----
@@ -991,16 +1027,16 @@ function onTrackToggle(){
 window.addEventListener('load',async()=>{
   // Load default MIDI
   try{loadMidiFromBase64(DEFAULT_MIDI_B64,'song.mid')}catch(e){console.error('Default MIDI error',e)}
-  // Load default MP3
+  // Load default MP3 (try both paths for Flask and static hosting)
   try{
-    const resp=await fetch('song.mp3');
+    let resp=await fetch('song.mp3');
+    if(!resp.ok)resp=await fetch('/static/song.mp3');
     if(resp.ok){
-      initAudio();
-      const buf=await resp.arrayBuffer();
-      mp3Buffer=await audioCtx.decodeAudioData(buf);
-      mp3Cursor=0;mp3Playing=false;mp3Mode=true;
+      const rawBuf=await resp.arrayBuffer();
+      // Store raw buffer; decode when audio is ready
+      window._pendingMp3=rawBuf;
       document.getElementById('midiFilename').textContent='song.mp3';
-      document.getElementById('midiTracks').innerHTML='<div style="font-size:11px;color:var(--muted);margin-top:4px">Mode MP3 — 200ms par rebond</div>';
+      document.getElementById('midiTracks').innerHTML='<div style="font-size:11px;color:var(--muted);margin-top:4px">Mode MP3</div>';
     }
   }catch(e){console.error('Default MP3 error',e)}
 
@@ -1013,7 +1049,7 @@ window.addEventListener('load',async()=>{
       mp3Buffer=await audioCtx.decodeAudioData(buf);
       mp3Cursor=0;mp3Playing=false;mp3Mode=true;
       document.getElementById('midiFilename').textContent=file.name;
-      document.getElementById('midiTracks').innerHTML='<div style="font-size:11px;color:var(--muted);margin-top:4px">Mode MP3 — 200ms par rebond</div>';
+      document.getElementById('midiTracks').innerHTML='<div style="font-size:11px;color:var(--muted);margin-top:4px">Mode MP3</div>';
     }else{
       mp3Mode=false;mp3Buffer=null;
       try{await loadMidiFile(file)}catch(err){console.error('MIDI parse error',err)}
