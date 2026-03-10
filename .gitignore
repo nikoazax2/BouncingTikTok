@@ -2,3 +2,6 @@ __pycache__/
 *.mp4
 *.pyc
 uploaded.mid
+_export_params*.json
+_export.log
+venv/

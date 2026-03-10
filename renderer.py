@@ -5,7 +5,6 @@ import os
 import sys
 import random
 import pygame
-import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from config import VIDEO_WIDTH, VIDEO_HEIGHT, SceneConfig, BallConfig, TRAIL_FADE_SPEED
@@ -336,8 +335,23 @@ def render_scene(scene: SceneConfig, preview: bool = False) -> str:
         ball.base_radius = int(circle_r * 0.6)
         ball.grow_speed = (ball.base_radius - 5) / total_frames
     bounce_events: list[tuple[float, str]] = []
-    frames: list[np.ndarray] = []
     death_count = 0
+
+    # Stream frames to ffmpeg via pipe (saves RAM)
+    import subprocess as _sp
+    video_tmp = scene.output_file + ".video.mp4"
+    ffmpeg_proc = None
+    if not preview:
+        ffmpeg_proc = _sp.Popen([
+            "ffmpeg", "-y",
+            "-f", "rawvideo", "-pix_fmt", "rgb24",
+            "-s", f"{VIDEO_WIDTH}x{VIDEO_HEIGHT}",
+            "-r", str(scene.fps),
+            "-i", "pipe:0",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+            "-pix_fmt", "yuv420p",
+            video_tmp,
+        ], stdin=_sp.PIPE, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
     # Persistent trail surface (like JS trailCtx)
     trail_surface = pygame.Surface((VIDEO_WIDTH, VIDEO_HEIGHT), pygame.SRCALPHA)
     trail_surface.fill((0, 0, 0, 0))
@@ -460,10 +474,10 @@ def render_scene(scene: SceneConfig, preview: bool = False) -> str:
 
         ball.draw(surface, frame_idx)
 
-        # Capture frame
+        # Write frame to ffmpeg pipe (or store for preview)
         frame_data = pygame.image.tostring(surface, "RGB")
-        frame_array = np.frombuffer(frame_data, dtype=np.uint8).reshape((VIDEO_HEIGHT, VIDEO_WIDTH, 3))
-        frames.append(frame_array)
+        if ffmpeg_proc:
+            ffmpeg_proc.stdin.write(frame_data)
 
         if preview and screen:
             preview_surface = pygame.transform.scale(surface, (VIDEO_WIDTH // 2, VIDEO_HEIGHT // 2))
@@ -474,6 +488,11 @@ def render_scene(scene: SceneConfig, preview: bool = False) -> str:
         if (frame_idx + 1) % (scene.fps * 5) == 0:
             pct = (frame_idx + 1) / total_frames * 100
             print(f"  {pct:.0f}% ({frame_idx + 1}/{total_frames} frames) - {death_count} deaths")
+
+    # Close ffmpeg pipe
+    if ffmpeg_proc:
+        ffmpeg_proc.stdin.close()
+        ffmpeg_proc.wait()
 
     pygame.quit()
 
@@ -487,13 +506,11 @@ def render_scene(scene: SceneConfig, preview: bool = False) -> str:
     music_path = scene.music_file
 
     if scene.mp3_mode:
-        # MP3 mode: find MP3 file
         mp3_files = glob.glob(os.path.join(script_dir, "*.mp3"))
         if mp3_files:
             music_path = mp3_files[0]
             print(f"Using MP3: {os.path.basename(music_path)}")
     else:
-        # MIDI mode: find MIDI file
         mid_files = glob.glob(os.path.join(script_dir, "*.mid")) + glob.glob(os.path.join(script_dir, "*.midi"))
         if mid_files:
             midi_path = mid_files[0]
@@ -507,23 +524,23 @@ def render_scene(scene: SceneConfig, preview: bool = False) -> str:
         filter_channels=scene.selected_channels,
     )
 
-    print("Encoding video...")
-    from moviepy import ImageSequenceClip, AudioFileClip
-
-    clip = ImageSequenceClip(frames, fps=scene.fps)
-    audio_clip = AudioFileClip(wav_path)
-    clip = clip.with_audio(audio_clip)
-
+    # Mux video + audio with ffmpeg
     output_path = scene.output_file
-    clip.write_videofile(
-        output_path,
-        codec="libx264",
-        audio_codec="aac",
-        fps=scene.fps,
-        preset="medium",
-        bitrate="8000k",
-        logger="bar",
-    )
+    print("Muxing audio...")
+    _sp.run([
+        "ffmpeg", "-y",
+        "-i", video_tmp,
+        "-i", wav_path,
+        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+        "-shortest", output_path,
+    ], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+
+    # Cleanup temp files
+    for f in [video_tmp, wav_path]:
+        try:
+            os.remove(f)
+        except OSError:
+            pass
 
     print(f"Video saved to: {output_path}")
     return output_path

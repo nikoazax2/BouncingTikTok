@@ -5,7 +5,23 @@ import sys
 from flask import Flask, send_from_directory, request, jsonify
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+ALLOWED_ORIGINS = [
+    "https://bouncing-tik-tok.vercel.app",
+    "http://localhost:5000",
+    "http://127.0.0.1:5000",
+]
+
 app = Flask(__name__, static_folder=PROJECT_DIR, static_url_path="/static")
+
+
+@app.after_request
+def add_cors(response):
+    origin = request.headers.get("Origin", "")
+    if origin in ALLOWED_ORIGINS:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    return response
 
 
 @app.route("/")
@@ -130,9 +146,11 @@ def midi_notes():
     return jsonify([[60], [62], [64], [65], [67], [69], [71], [72]])
 
 
-@app.route("/api/export-start", methods=["POST"])
+@app.route("/api/export-start", methods=["POST", "OPTIONS"])
 def export_start():
     """Launch export subprocess and return uid for polling."""
+    if request.method == "OPTIONS":
+        return "", 204
     import json, uuid, subprocess
     p = request.json
     uid = uuid.uuid4().hex[:8]
@@ -146,6 +164,7 @@ def export_start():
     )
     return jsonify({"uid": uid})
 
+
 @app.route("/api/export-poll/<uid>")
 def export_poll(uid):
     output_file = os.path.join(PROJECT_DIR, f"_output_{uid}.mp4")
@@ -155,5 +174,5 @@ def export_poll(uid):
 
 
 if __name__ == "__main__":
-    print("Server: http://localhost:5000")
-    app.run(debug=False, port=5000)
+    print("Server: http://0.0.0.0:5000")
+    app.run(host="0.0.0.0", debug=False, port=5000)
