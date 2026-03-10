@@ -9,6 +9,7 @@ ALLOWED_ORIGINS = [
     "https://bouncing-tik-tok.vercel.app",
     "http://localhost:5000",
     "http://127.0.0.1:5000",
+    "https://217-154-121-187.sslip.io",
 ]
 
 app = Flask(__name__, static_folder=PROJECT_DIR, static_url_path="/static")
