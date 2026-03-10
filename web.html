@@ -210,6 +210,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:3px}
       <div class="section-title">Physique</div>
       <div class="row"><label>Gravite</label><input type="range" id="gravity" min="0" max="1" step="0.01" value="0.57"><span class="val" id="gravity-val">0.57</span></div>
       <div class="row"><label>Alea rebond</label><input type="range" id="nudge" min="0" max="1" step="0.01" value="0.53"><span class="val" id="nudge-val">0.53</span></div>
+      <div class="row"><label>Perte energie</label><input type="range" id="energyLoss" min="0" max="0.5" step="0.01" value="0"><span class="val" id="energyLoss-val">0.00</span></div>
     </div>
 
     <div class="section">
@@ -221,7 +222,7 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:3px}
 
     <div class="section">
       <div class="section-title">Musique</div>
-      <label class="midi-file-label"><input type="file" id="midiFile" accept=".mid,.midi">Importer un fichier MIDI</label>
+      <label class="midi-file-label"><input type="file" id="midiFile" accept=".mid,.midi,.mp3,.wav,.ogg,.m4a">Importer MIDI ou MP3</label>
       <div class="midi-filename" id="midiFilename"></div>
       <div class="midi-tracks" id="midiTracks"></div>
     </div>
@@ -264,6 +265,9 @@ const DEFAULT_MIDI_B64="TVRoZAAAAAYAAAABAeBNVHJrAADmfAD/Aw4yMTkxX1BhcGFvdXRhaQD/
 
 // ---- Audio ----
 let audioCtx=null, midiSequence=[[60],[62],[64],[65],[67],[69],[71],[72]], noteIdx=0, audioReady=false;
+// MP3 mode
+let mp3Buffer=null, mp3Cursor=0, mp3Source=null, mp3Playing=false, mp3Mode=false;
+const MP3_CHUNK=0.2; // 200ms per bounce
 
 function midiToFreq(n){return 440*Math.pow(2,(n-69)/12)}
 
@@ -458,8 +462,35 @@ function playPerc(note,t){
   o.connect(g2);g2.connect(audioCtx.destination);o.start(t);o.stop(t+0.06);
 }
 
+function playBounceMp3(){
+  if(!audioReady||!mp3Buffer)return;
+  if(mp3Playing)return; // don't overlap
+  const t=audioCtx.currentTime;
+  const remain=mp3Buffer.duration-mp3Cursor;
+  if(remain<=0){mp3Cursor=0;}
+  const dur=Math.min(MP3_CHUNK,mp3Buffer.duration-mp3Cursor);
+  if(dur<=0)return;
+  const src=audioCtx.createBufferSource();
+  src.buffer=mp3Buffer;
+  const g=audioCtx.createGain();
+  // fade in/out 5ms
+  const fade=0.005;
+  g.gain.setValueAtTime(0,t);
+  g.gain.linearRampToValueAtTime(0.8,t+fade);
+  g.gain.setValueAtTime(0.8,t+dur-fade);
+  g.gain.linearRampToValueAtTime(0,t+dur);
+  src.connect(g);g.connect(audioCtx.destination);
+  src.start(t,mp3Cursor,dur);
+  mp3Playing=true;
+  mp3Source=src;
+  src.onended=()=>{mp3Playing=false;mp3Source=null};
+  mp3Cursor+=dur;
+  if(mp3Cursor>=mp3Buffer.duration)mp3Cursor=0;
+}
+
 function playBounce(){
   if(!audioReady)return;
+  if(mp3Mode&&mp3Buffer){playBounceMp3();return}
   const chord=midiSequence[noteIdx%midiSequence.length]; noteIdx++;
   const t=audioCtx.currentTime;
   chord.forEach(item=>{
@@ -566,7 +597,7 @@ function getParams(){
   return{shape:v('shape'),padding:+v('padding'),rotation:+v('rotation'),thickness:+v('thickness'),
     spikes:c('spikes'),speed:+v('speed'),launchAngle:+v('launchAngle'),radius:+v('radius'),
     trail:+v('trail'),useImage:c('useImage'),growth:c('growth'),
-    gravity:+v('gravity'),nudge:+v('nudge'),
+    gravity:+v('gravity'),nudge:+v('nudge'),energyLoss:+v('energyLoss'),
     bgColorHex:v('bgColor'),shapeColorHex:v('shapeColor'),ballColorHex:v('ballColor'),
     bgColor:hexToRgb(v('bgColor')),shapeColor:hexToRgb(v('shapeColor')),ballColor:hexToRgb(v('ballColor')),
     duration:+v('duration'),fps:+v('fps')};
@@ -588,7 +619,7 @@ const sim={
     this.spikes=p.spikes?generateSpikes(VW/2,VH/2,cr):[];
     if(!p.spikes&&p.growth){this.radius=5;this.baseRadius=Math.floor(cr*0.6);const t=p.duration*p.fps;this.growSpeed=t>0?(this.baseRadius-5)/t:0}
     else{this.radius=p.radius;this.baseRadius=p.radius;this.growSpeed=0}
-    this.deadBalls=[];this.impacts=[];this.frame=0;this.bounces=0;this.deaths=0;this.spawnTimer=0;noteIdx=0;
+    this.deadBalls=[];this.impacts=[];this.frame=0;this.bounces=0;this.deaths=0;this.spawnTimer=0;noteIdx=0;mp3Cursor=0;mp3Playing=false;
     trailCtx.clearRect(0,0,VW,VH);
     this.paused=false;
     document.getElementById('pauseBtn').textContent='Pause';
@@ -613,7 +644,7 @@ const sim={
 
     const col=closestEdgeCollision(this.x,this.y,this.radius,this.vx,this.vy,this.verts);
     if(col.hit){
-      const spd=Math.sqrt(this.vx**2+this.vy**2);
+      const spd=Math.sqrt(this.vx**2+this.vy**2)*(1-p.energyLoss);
       let a=Math.atan2(col.vy,col.vx)+((Math.random()-0.5)*2*p.nudge);
       this.vx=spd*Math.cos(a);this.vy=spd*Math.sin(a);
       this.x+=this.vx*0.5;this.y+=this.vy*0.5;
@@ -703,7 +734,7 @@ function applyPreset(name){
   set('shape',p.shape);set('padding',p.padding);set('rotation',p.rotation);set('thickness',p.thickness);
   set('spikes',p.spikes);set('speed',p.speed);set('launchAngle',p.launchAngle);set('radius',p.radius);
   set('trail',p.trail);set('useImage',p.useImage);set('growth',p.growth);
-  set('gravity',p.gravity);set('nudge',p.nudge);
+  set('gravity',p.gravity);set('nudge',p.nudge);set('energyLoss',p.energyLoss||0);
   set('bgColor',p.bgColor);set('shapeColor',p.shapeColor);set('ballColor',p.ballColor);
   updateAllValues();
   const rr=document.getElementById('radius-row'),ge=document.getElementById('growth');
@@ -795,7 +826,7 @@ async function doExport(){
 
 function updateAllValues(){
   ['padding','rotation','thickness','speed','launchAngle','radius','trail'].forEach(id=>{const el=document.getElementById(id+'-val');if(el)el.textContent=document.getElementById(id).value});
-  ['gravity','nudge'].forEach(id=>{const el=document.getElementById(id+'-val');if(el)el.textContent=(+document.getElementById(id).value).toFixed(2)});
+  ['gravity','nudge','energyLoss'].forEach(id=>{const el=document.getElementById(id+'-val');if(el)el.textContent=(+document.getElementById(id).value).toFixed(2)});
 }
 
 // ---- Init ----
@@ -962,7 +993,18 @@ window.addEventListener('load',async()=>{
 
   document.getElementById('midiFile').addEventListener('change',async e=>{
     const file=e.target.files[0];if(!file)return;
-    try{await loadMidiFile(file)}catch(err){console.error('MIDI parse error',err)}
+    const ext=file.name.split('.').pop().toLowerCase();
+    if(['mp3','wav','ogg','m4a'].includes(ext)){
+      initAudio();
+      const buf=await file.arrayBuffer();
+      mp3Buffer=await audioCtx.decodeAudioData(buf);
+      mp3Cursor=0;mp3Playing=false;mp3Mode=true;
+      document.getElementById('midiFilename').textContent=file.name;
+      document.getElementById('midiTracks').innerHTML='<div style="font-size:11px;color:var(--muted);margin-top:4px">Mode MP3 — 200ms par rebond</div>';
+    }else{
+      mp3Mode=false;mp3Buffer=null;
+      try{await loadMidiFile(file)}catch(err){console.error('MIDI parse error',err)}
+    }
   });
 
   document.getElementById('ballFile').addEventListener('change',e=>{
