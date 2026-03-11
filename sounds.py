@@ -128,11 +128,12 @@ def create_bounce_soundtrack(bounce_events: list[tuple[float, str]], total_durat
         print(f"  Found {len(midi_notes)} notes in MIDI")
     elif music_path and os.path.exists(music_path):
         print(f"  Loading music: {music_path}")
-        from moviepy import AudioFileClip
-        clip = AudioFileClip(music_path)
-        raw = clip.to_soundarray(fps=sample_rate)
-        clip.close()
-        music_data = raw.mean(axis=1).astype(np.float64) if raw.ndim > 1 else raw.astype(np.float64)
+        import subprocess as _sp
+        raw_pcm = _sp.run([
+            "ffmpeg", "-i", music_path, "-f", "s16le", "-ac", "1",
+            "-ar", str(sample_rate), "pipe:1",
+        ], capture_output=True).stdout
+        music_data = np.frombuffer(raw_pcm, dtype=np.int16).astype(np.float64) / 32768.0
 
     note_idx = 0
     music_cursor = 0
