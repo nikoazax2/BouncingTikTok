@@ -333,7 +333,8 @@ def render_scene(scene: SceneConfig, preview: bool = False) -> str:
     if not scene.spikes and scene.growth:
         ball.radius = 5
         ball.base_radius = int(circle_r * 0.6)
-        ball.grow_speed = (ball.base_radius - 5) / total_frames
+        grow_frames = scene.grow_time * scene.fps
+        ball.grow_speed = (ball.base_radius - 5) / grow_frames if grow_frames > 0 else 0
     bounce_events: list[tuple[float, str]] = []
     death_count = 0
 
@@ -371,18 +372,31 @@ def render_scene(scene: SceneConfig, preview: bool = False) -> str:
                     pygame.quit()
                     return ""
 
-        # 1) Paint trail dot at ball position (before move, like JS)
-        if ball.alive:
+        # 1) Paint trail at ball position (before move, like JS)
+        tt = scene.trail_type
+        if ball.alive and tt != "none":
             hue = (frame_idx * 0.01) % 1.0
             tr, tg, tb = _cs.hsv_to_rgb(hue, 1.0, 1.0)
             t_rad = max(2, int(ball.radius * 0.8))
-            trail_color = (int(tr * 255), int(tg * 255), int(tb * 255), 178)  # 0.7 * 255
-            t_surf = pygame.Surface((t_rad * 2, t_rad * 2), pygame.SRCALPHA)
-            pygame.draw.circle(t_surf, trail_color, (t_rad, t_rad), t_rad)
-            trail_surface.blit(t_surf, (int(ball.x) - t_rad, int(ball.y) - t_rad))
+            trail_color = (int(tr * 255), int(tg * 255), int(tb * 255), 178)
+            if tt == "fill":
+                t_surf = pygame.Surface((t_rad * 2, t_rad * 2), pygame.SRCALPHA)
+                pygame.draw.circle(t_surf, trail_color, (t_rad, t_rad), t_rad)
+                trail_surface.blit(t_surf, (int(ball.x) - t_rad, int(ball.y) - t_rad))
+            elif tt == "ring":
+                pygame.draw.circle(trail_surface, trail_color, (int(ball.x), int(ball.y)), t_rad, 2)
+            elif tt == "dots":
+                dot_r = max(1, int(t_rad * 0.3))
+                dot_color = (int(tr * 255), int(tg * 255), int(tb * 255), 229)
+                pygame.draw.circle(trail_surface, dot_color, (int(ball.x), int(ball.y)), dot_r)
+            elif tt == "line":
+                if hasattr(ball, '_prev_trail') and ball._prev_trail is not None:
+                    lw = ball.radius * 2
+                    pygame.draw.line(trail_surface, trail_color, ball._prev_trail, (int(ball.x), int(ball.y)), lw)
+                ball._prev_trail = (int(ball.x), int(ball.y))
 
-        # 2) Fade trail if spikes mode (like JS destination-out)
-        if has_spikes and trail_length > 0:
+        # 2) Fade trail (like JS destination-out) — 200 = infinite
+        if trail_length > 0 and trail_length < 200 and tt != "none":
             fade_alpha = max(1, int(255 / trail_length))
             fade_surf = pygame.Surface((VIDEO_WIDTH, VIDEO_HEIGHT), pygame.SRCALPHA)
             fade_surf.fill((0, 0, 0, fade_alpha))
@@ -471,6 +485,7 @@ def render_scene(scene: SceneConfig, preview: bool = False) -> str:
             dead_balls.append(DeadBall(ball.x, ball.y, ball.radius, ball.cfg.color))
             ball.respawn()
             trail_surface.fill((0, 0, 0, 0))  # clear trail on death (like JS)
+            ball._prev_trail = None
 
         ball.draw(surface, frame_idx)
 

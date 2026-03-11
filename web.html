@@ -202,8 +202,11 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:3px}
       <div class="row"><label>Angle</label><input type="range" id="launchAngle" min="0" max="360" value="19"><span class="val" id="launchAngle-val">19</span></div>
       <div class="row" id="radius-row"><label>Taille</label><input type="range" id="radius" min="5" max="80" value="35"><span class="val" id="radius-val">35</span></div>
       <div class="row"><label>Trainee</label><input type="range" id="trail" min="0" max="200" value="30"><span class="val" id="trail-val">30</span></div>
+
+      <div class="row"><label>Type trainee</label><select id="trailType"><option value="fill">Continue</option><option value="ring">Cercles</option><option value="dots">Points</option><option value="line">Ligne</option><option value="none">Aucune</option></select></div>
       <div class="row"><label>Image</label><label class="toggle"><input type="checkbox" id="useImage"><span class="sl"></span></label><label class="midi-file-label" style="margin-left:6px"><input type="file" id="ballFile" accept="image/*">Charger</label></div>
       <div class="row"><label>Balle qui grossit</label><label class="toggle"><input type="checkbox" id="growth"><span class="sl"></span></label></div>
+      <div class="row" id="growTime-row" style="display:none"><label>Temps grossissement (s)</label><input type="range" id="growTime" min="1" max="60" value="10"><span class="val" id="growTime-val">10</span></div>
     </div>
 
     <div class="section">
@@ -610,7 +613,7 @@ function getParams(){
   const v=id=>document.getElementById(id).value, c=id=>document.getElementById(id).checked;
   return{shape:v('shape'),padding:+v('padding'),rotation:+v('rotation'),thickness:+v('thickness'),
     spikes:c('spikes'),speed:+v('speed'),launchAngle:+v('launchAngle'),radius:+v('radius'),
-    trail:+v('trail'),useImage:c('useImage'),growth:c('growth'),
+    trail:+v('trail'),trailType:v('trailType'),useImage:c('useImage'),growth:c('growth'),growTime:+v('growTime'),
     gravity:+v('gravity'),nudge:+v('nudge'),energyLoss:+v('energyLoss'),
     bgColorHex:v('bgColor'),shapeColorHex:v('shapeColor'),ballColorHex:v('ballColor'),
     bgColor:hexToRgb(v('bgColor')),shapeColor:hexToRgb(v('shapeColor')),ballColor:hexToRgb(v('ballColor')),
@@ -631,9 +634,9 @@ const sim={
     this.vx=p.speed*Math.sin(p.launchAngle*Math.PI/180);
     this.vy=p.speed*Math.cos(p.launchAngle*Math.PI/180);
     this.spikes=p.spikes?generateSpikes(VW/2,VH/2,cr):[];
-    if(!p.spikes&&p.growth){this.radius=5;this.baseRadius=Math.floor(cr*0.6);const t=p.duration*p.fps;this.growSpeed=t>0?(this.baseRadius-5)/t:0}
+    if(!p.spikes&&p.growth){this.radius=5;this.baseRadius=Math.floor(cr*0.6);const t=p.growTime*p.fps;this.growSpeed=t>0?(this.baseRadius-5)/t:0}
     else{this.radius=p.radius;this.baseRadius=p.radius;this.growSpeed=0}
-    this.deadBalls=[];this.impacts=[];this.frame=0;this.bounces=0;this.deaths=0;this.spawnTimer=0;noteIdx=0;mp3Cursor=0;mp3Playing=false;
+    this.deadBalls=[];this.impacts=[];this.frame=0;this.bounces=0;this.deaths=0;this.spawnTimer=0;this._prevX=null;this._prevY=null;noteIdx=0;mp3Cursor=0;mp3Playing=false;
     trailCtx.clearRect(0,0,VW,VH);
     this.paused=false;
     document.getElementById('pauseBtn').textContent='Pause';
@@ -648,11 +651,28 @@ const sim={
 
     const hue=(this.frame*0.01)%1,[tr,tg,tb]=hsl2rgb(hue,1,0.5);
     const tRad=Math.max(2,Math.floor(this.radius*0.8));
-    trailCtx.fillStyle=`rgba(${tr},${tg},${tb},0.7)`;
-    trailCtx.beginPath();trailCtx.arc(this.x,this.y,tRad,0,Math.PI*2);trailCtx.fill();
+    const tt=p.trailType;
+    if(tt!=='none'){
+      if(tt==='fill'){
+        trailCtx.fillStyle=`rgba(${tr},${tg},${tb},0.7)`;
+        trailCtx.beginPath();trailCtx.arc(this.x,this.y,tRad,0,Math.PI*2);trailCtx.fill();
+      }else if(tt==='ring'){
+        trailCtx.strokeStyle=`rgba(${tr},${tg},${tb},0.7)`;trailCtx.lineWidth=2;
+        trailCtx.beginPath();trailCtx.arc(this.x,this.y,tRad,0,Math.PI*2);trailCtx.stroke();
+      }else if(tt==='dots'){
+        trailCtx.fillStyle=`rgba(${tr},${tg},${tb},0.9)`;
+        trailCtx.beginPath();trailCtx.arc(this.x,this.y,Math.max(1,tRad*0.3),0,Math.PI*2);trailCtx.fill();
+      }else if(tt==='line'){
+        if(this._prevX!=null){
+          trailCtx.strokeStyle=`rgba(${tr},${tg},${tb},0.7)`;trailCtx.lineWidth=this.radius*2;trailCtx.lineCap='round';
+          trailCtx.beginPath();trailCtx.moveTo(this._prevX,this._prevY);trailCtx.lineTo(this.x,this.y);trailCtx.stroke();
+        }
+        this._prevX=this.x;this._prevY=this.y;
+      }
+    }
 
-    const hasSpikes=this.spikes.length>0, maxTrail=hasSpikes?p.trail:0;
-    if(maxTrail>0){trailCtx.globalCompositeOperation='destination-out';trailCtx.fillStyle=`rgba(0,0,0,${Math.max(0.005,1/maxTrail)})`;trailCtx.fillRect(0,0,VW,VH);trailCtx.globalCompositeOperation='source-over'}
+    const hasSpikes=this.spikes.length>0;
+    if(p.trail>0&&p.trail<200&&tt!=='none'){trailCtx.globalCompositeOperation='destination-out';trailCtx.fillStyle=`rgba(0,0,0,${1/p.trail})`;trailCtx.fillRect(0,0,VW,VH);trailCtx.globalCompositeOperation='source-over'}
 
     this.x+=this.vx;this.y+=this.vy;
 
@@ -681,7 +701,7 @@ const sim={
           this.x=VW/2;this.y=VH/2;
           this.vx=p.speed*Math.sin(p.launchAngle*Math.PI/180);
           this.vy=p.speed*Math.cos(p.launchAngle*Math.PI/180);
-          trailCtx.clearRect(0,0,VW,VH);this.spawnTimer=20;break;
+          trailCtx.clearRect(0,0,VW,VH);this._prevX=null;this._prevY=null;this.spawnTimer=20;break;
         }
       }
     }
@@ -757,7 +777,7 @@ function applyPreset(name){
   const set=(id,val)=>{const el=document.getElementById(id);if(el){if(el.type==='checkbox')el.checked=!!val;else el.value=val}};
   set('shape',p.shape);set('padding',p.padding);set('rotation',p.rotation);set('thickness',p.thickness);
   set('spikes',p.spikes);set('speed',p.speed);set('launchAngle',p.launchAngle);set('radius',p.radius);
-  set('trail',p.trail);set('useImage',p.useImage);set('growth',p.growth);
+  set('trail',p.trail);set('trailType',p.trailType||'fill');set('useImage',p.useImage);set('growth',p.growth);set('growTime',p.growTime||10);
   set('gravity',p.gravity);set('nudge',p.nudge);set('energyLoss',p.energyLoss||0);
   set('bgColor',p.bgColor);set('shapeColor',p.shapeColor);set('ballColor',p.ballColor);
   updateAllValues();
@@ -767,7 +787,7 @@ function applyPreset(name){
   sim.reset();
 }
 
-const PARAM_IDS=['shape','padding','rotation','thickness','spikes','speed','launchAngle','radius','trail','useImage','growth','gravity','nudge','energyLoss','mp3Chunk','bgColor','shapeColor','ballColor','duration','fps'];
+const PARAM_IDS=['shape','padding','rotation','thickness','spikes','speed','launchAngle','radius','trail','trailType','useImage','growth','growTime','gravity','nudge','energyLoss','mp3Chunk','bgColor','shapeColor','ballColor','duration','fps'];
 
 function copyParams(){
   const p={};
@@ -822,7 +842,7 @@ async function doExport(){
     const body={
       shape:p.shape,padding:p.padding,rotation:p.rotation,thickness:p.thickness,
       spikes:p.spikes,speed:p.speed,launchAngle:p.launchAngle,radius:p.radius,
-      trail:p.trail,useImage:p.useImage,growth:p.growth,
+      trail:p.trail,trailType:p.trailType,useImage:p.useImage,growth:p.growth,growTime:p.growTime,
       gravity:p.gravity,nudge:p.nudge,energyLoss:p.energyLoss,
       bgColor:p.bgColorHex,shapeColor:p.shapeColorHex,ballColor:p.ballColorHex,
       duration:p.duration,fps:p.fps,mp3Chunk:getMp3Chunk(),
@@ -853,7 +873,8 @@ async function doExport(){
 }
 
 function updateAllValues(){
-  ['padding','rotation','thickness','speed','launchAngle','radius','trail'].forEach(id=>{const el=document.getElementById(id+'-val');if(el)el.textContent=document.getElementById(id).value});
+  ['padding','rotation','thickness','speed','launchAngle','radius','growTime'].forEach(id=>{const el=document.getElementById(id+'-val');if(el)el.textContent=document.getElementById(id).value});
+  {const tv=document.getElementById('trail').value,te=document.getElementById('trail-val');if(te)te.textContent=tv==='200'?'\u221E':tv}
   ['gravity','nudge'].forEach(id=>{const el=document.getElementById(id+'-val');if(el)el.textContent=(+document.getElementById(id).value).toFixed(2)});
   {const el=document.getElementById('energyLoss-val');if(el)el.textContent=(+document.getElementById('energyLoss').value).toFixed(3)}
   {const el=document.getElementById('mp3Chunk-val');if(el)el.textContent=(+document.getElementById('mp3Chunk').value).toFixed(2)}
@@ -1062,9 +1083,9 @@ window.addEventListener('load',async()=>{
   document.querySelectorAll('input[type=range]').forEach(el=>el.addEventListener('input',updateAllValues));
   updateAllValues();
 
-  const growthEl=document.getElementById('growth'),radiusRow=document.getElementById('radius-row');
-  function toggleRadiusRow(){radiusRow.style.display=growthEl.checked?'none':''}
-  growthEl.addEventListener('change',toggleRadiusRow);toggleRadiusRow();
+  const growthEl=document.getElementById('growth'),radiusRow=document.getElementById('radius-row'),growTimeRow=document.getElementById('growTime-row');
+  function toggleGrowthRows(){radiusRow.style.display=growthEl.checked?'none':'';growTimeRow.style.display=growthEl.checked?'':'none'}
+  growthEl.addEventListener('change',toggleGrowthRows);toggleGrowthRows();
 
   let rt=null;const autoReset=()=>{clearTimeout(rt);rt=setTimeout(()=>sim.reset(),60)};
   document.querySelectorAll('input[type=range],select,input[type=checkbox],input[type=color]').forEach(el=>{el.addEventListener('input',autoReset);el.addEventListener('change',autoReset)});

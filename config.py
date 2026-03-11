@@ -51,6 +51,8 @@ class SceneConfig:
     use_image: bool = False
     mp3_mode: bool = False
     selected_channels: list[int] | None = None
+    trail_type: str = "fill"
+    grow_time: int = 10
     mp3_chunk_ms: int = 200
     duration: int = DURATION
     fps: int = FPS
